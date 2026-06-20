@@ -158,6 +158,102 @@ class TestMemberEndpoints:
         # Should return 404 or show is_active=False
         assert get_response.status_code in [status.HTTP_404_NOT_FOUND, status.HTTP_200_OK]
     
+    def test_delete_member_with_active_borrowing_fails(self, client, auth_headers, test_member, test_book, db_session):
+        """Test that deleting a member with active borrowings fails"""
+        from app.models.models import Borrowing
+        from datetime import datetime, timedelta
+        
+        # Create an active borrowing
+        borrowing = Borrowing(
+            member_id=test_member.id,
+            book_id=test_book.id,
+            borrowed_date=datetime.utcnow(),
+            due_date=datetime.utcnow() + timedelta(days=14),
+            status="BORROWED"
+        )
+        db_session.add(borrowing)
+        test_book.available_copies -= 1
+        db_session.commit()
+        
+        # Try to delete the member
+        response = client.delete(
+            f"/members/{test_member.id}/",
+            headers=auth_headers
+        )
+        
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "active borrowing" in response.json()["detail"].lower()
+        
+        # Verify member still exists
+        get_response = client.get(
+            f"/members/{test_member.id}/",
+            headers=auth_headers
+        )
+        assert get_response.status_code == status.HTTP_200_OK
+    
+    def test_delete_member_after_return_succeeds(self, client, auth_headers, test_member, test_book, db_session):
+        """Test that deleting a member after returning all books succeeds"""
+        from app.models.models import Borrowing
+        from datetime import datetime, timedelta
+        
+        # Create a borrowing and immediately return it
+        borrowing = Borrowing(
+            member_id=test_member.id,
+            book_id=test_book.id,
+            borrowed_date=datetime.utcnow(),
+            due_date=datetime.utcnow() + timedelta(days=14),
+            status="RETURNED",
+            returned_date=datetime.utcnow()
+        )
+        db_session.add(borrowing)
+        db_session.commit()
+        
+        # Delete should succeed now
+        response = client.delete(
+            f"/members/{test_member.id}/",
+            headers=auth_headers
+        )
+        
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+    
+    def test_delete_member_with_multiple_active_borrowings(self, client, auth_headers, test_member, db_session):
+        """Test deletion fails with multiple active borrowings"""
+        from app.models.models import Book, Borrowing
+        from datetime import datetime, timedelta
+        
+        # Create multiple books and borrowings
+        book1 = Book(title="Book 1", author="Author 1", isbn="ISBN-001", total_copies=1, available_copies=0)
+        book2 = Book(title="Book 2", author="Author 2", isbn="ISBN-002", total_copies=1, available_copies=0)
+        db_session.add_all([book1, book2])
+        db_session.commit()
+        
+        borrowing1 = Borrowing(
+            member_id=test_member.id,
+            book_id=book1.id,
+            borrowed_date=datetime.utcnow(),
+            due_date=datetime.utcnow() + timedelta(days=14),
+            status="BORROWED"
+        )
+        borrowing2 = Borrowing(
+            member_id=test_member.id,
+            book_id=book2.id,
+            borrowed_date=datetime.utcnow(),
+            due_date=datetime.utcnow() + timedelta(days=14),
+            status="BORROWED"
+        )
+        db_session.add_all([borrowing1, borrowing2])
+        db_session.commit()
+        
+        # Try to delete
+        response = client.delete(
+            f"/members/{test_member.id}/",
+            headers=auth_headers
+        )
+        
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"].lower()
+        assert "2" in detail or "active borrowing" in detail
+    
     def test_unauthorized_access(self, client):
         """Test accessing endpoints without authentication"""
         response = client.get("/members/")

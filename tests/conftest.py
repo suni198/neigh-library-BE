@@ -3,12 +3,15 @@ Test configuration and fixtures for pytest
 """
 
 import pytest
+import os
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import app
+# Set test database URL before importing app
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
 from app.db.database import Base, get_db
 from app.core.security import get_password_hash
 
@@ -38,6 +41,9 @@ def db_session():
 @pytest.fixture(scope="function")
 def client(db_session):
     """Create a test client with database session"""
+    # Import app here to avoid database connection during import
+    from app.main import app
+    
     def override_get_db():
         try:
             yield db_session

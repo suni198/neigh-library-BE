@@ -12,8 +12,9 @@ log_level = os.getenv("LOG_LEVEL", "INFO")
 setup_logging(log_level)
 logger = get_logger(__name__)
 
-# Create database tables
-models.Base.metadata.create_all(bind=engine)
+# Create database tables (skip in test mode with SQLite in memory)
+if not os.getenv("DATABASE_URL", "").startswith("sqlite:///:memory:"):
+    models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Neighborhood Library API",
