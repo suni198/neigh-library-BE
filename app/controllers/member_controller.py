@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from fastapi import HTTPException
 
 from app.controllers.base_controller import BaseController
-from app.models.models import Member
+from app.models.models import Member, Borrowing
 from app.schemas.schemas import MemberCreate, MemberUpdate
 from app.core.logging import log_business_event, log_error, log_critical
 
@@ -324,13 +324,32 @@ class MemberController(BaseController[Member]):
             user_id: ID of the user performing the deletion
             
         Raises:
-            HTTPException: If member not found or database error occurs
+            HTTPException: If member not found, has active borrowings, or database error occurs
         """
         try:
             self.logger.info(f"Deleting member: {member_id}")
             
             # Get existing member
             db_member = self.get_by_id(db, member_id)
+            
+            # Check for active borrowings
+            active_borrowings = db.query(Borrowing).filter(
+                Borrowing.member_id == member_id,
+                Borrowing.status == 'BORROWED'
+            ).count()
+            
+            if active_borrowings > 0:
+                log_error(
+                    self.logger,
+                    "Cannot delete member with active borrowings",
+                    member_id=member_id,
+                    active_borrowings=active_borrowings,
+                    user_id=user_id
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot delete member. Member has {active_borrowings} active borrowing(s). Please return all borrowed books first."
+                )
             
             # Soft delete
             self.delete(db, db_member, soft_delete=True)

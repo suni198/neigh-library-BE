@@ -4,12 +4,13 @@ Book controller handling all book-related business logic.
 
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from fastapi import HTTPException
 
 from app.controllers.base_controller import BaseController
-from app.models.models import Book
+from app.models.models import Book, Borrowing
 from app.schemas.schemas import BookCreate, BookUpdate
-from app.core.logging import log_business_event, log_error
+from app.core.logging import log_business_event, log_error, log_critical
 
 
 class BookController(BaseController[Book]):
@@ -37,40 +38,80 @@ class BookController(BaseController[Book]):
             Created book instance
             
         Raises:
-            HTTPException: If ISBN already exists
+            HTTPException: If ISBN already exists or database error occurs
         """
-        self.logger.info(f"Creating book: {book_data.title}")
-        
-        # Check if ISBN already exists
-        if book_data.isbn and self.exists_by_field(db, "isbn", book_data.isbn):
+        try:
+            self.logger.info(f"Creating book: {book_data.title}")
+            
+            # Check if ISBN already exists
+            if book_data.isbn and self.exists_by_field(db, "isbn", book_data.isbn):
+                log_error(
+                    self.logger,
+                    "Book creation failed: ISBN already exists",
+                    isbn=book_data.isbn
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="Book with this ISBN already exists"
+                )
+            
+            # Prepare book data with available_copies set to total_copies
+            book_dict = book_data.model_dump()
+            total_copies = book_dict.pop('total_copies')
+            book_dict['total_copies'] = total_copies
+            book_dict['available_copies'] = total_copies
+            
+            # Create book
+            db_book = self.create(db, book_dict)
+            
+            log_business_event(
+                self.logger,
+                "book_created",
+                book_id=db_book.id,
+                book_title=db_book.title,
+                total_copies=db_book.total_copies
+            )
+            
+            return db_book
+            
+        except HTTPException:
+            raise
+        except IntegrityError as e:
+            db.rollback()
             log_error(
                 self.logger,
-                "Book creation failed: ISBN already exists",
-                isbn=book_data.isbn
+                "Database integrity error while creating book",
+                exception=e,
+                title=book_data.title
             )
             raise HTTPException(
                 status_code=400,
-                detail="Book with this ISBN already exists"
+                detail="Database constraint violation"
             )
-        
-        # Prepare book data with available_copies set to total_copies
-        book_dict = book_data.model_dump()
-        total_copies = book_dict.pop('total_copies')
-        book_dict['total_copies'] = total_copies
-        book_dict['available_copies'] = total_copies
-        
-        # Create book
-        db_book = self.create(db, book_dict)
-        
-        log_business_event(
-            self.logger,
-            "book_created",
-            book_id=db_book.id,
-            book_title=db_book.title,
-            total_copies=db_book.total_copies
-        )
-        
-        return db_book
+        except SQLAlchemyError as e:
+            db.rollback()
+            log_critical(
+                self.logger,
+                "Critical database error while creating book",
+                exception=e,
+                title=book_data.title
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
+        except Exception as e:
+            db.rollback()
+            log_critical(
+                self.logger,
+                "Unexpected error while creating book",
+                exception=e,
+                title=book_data.title
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
     
     def get_books(
         self,
@@ -88,9 +129,37 @@ class BookController(BaseController[Book]):
             
         Returns:
             List of book instances
+            
+        Raises:
+            HTTPException: If database error occurs
         """
-        self.logger.info(f"Listing books: skip={skip}, limit={limit}")
-        return self.get_all(db, skip=skip, limit=limit)
+        try:
+            self.logger.info(f"Listing books: skip={skip}, limit={limit}")
+            return self.get_all(db, skip=skip, limit=limit)
+        except SQLAlchemyError as e:
+            log_critical(
+                self.logger,
+                "Critical database error while listing books",
+                exception=e,
+                skip=skip,
+                limit=limit
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
+        except Exception as e:
+            log_critical(
+                self.logger,
+                "Unexpected error while listing books",
+                exception=e,
+                skip=skip,
+                limit=limit
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
     
     def get_book_by_id(
         self,
@@ -108,10 +177,35 @@ class BookController(BaseController[Book]):
             Book instance
             
         Raises:
-            HTTPException: If book not found
+            HTTPException: If book not found or database error occurs
         """
-        self.logger.info(f"Getting book: {book_id}")
-        return self.get_by_id(db, book_id)
+        try:
+            self.logger.info(f"Getting book: {book_id}")
+            return self.get_by_id(db, book_id)
+        except HTTPException:
+            raise
+        except SQLAlchemyError as e:
+            log_error(
+                self.logger,
+                "Database error while getting book",
+                exception=e,
+                book_id=book_id
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
+        except Exception as e:
+            log_critical(
+                self.logger,
+                "Unexpected error while getting book",
+                exception=e,
+                book_id=book_id
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
     
     def update_book(
         self,
@@ -132,67 +226,107 @@ class BookController(BaseController[Book]):
             
         Raises:
             HTTPException: If book not found, ISBN already in use,
-                          or total_copies would be less than borrowed copies
+                          total_copies would be less than borrowed copies, or database error occurs
         """
-        self.logger.info(f"Updating book: {book_id}")
-        
-        # Get existing book
-        db_book = self.get_by_id(db, book_id)
-        
-        # Check ISBN uniqueness if ISBN is being updated
-        if book_update.isbn and book_update.isbn != db_book.isbn:
-            if self.exists_by_field(
-                db,
-                "isbn",
-                book_update.isbn,
-                exclude_id=book_id
-            ):
-                log_error(
-                    self.logger,
-                    "ISBN already in use",
-                    book_id=book_id,
-                    isbn=book_update.isbn
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail="ISBN already in use"
-                )
-        
-        update_data = book_update.model_dump(exclude_unset=True)
-        
-        # Handle total_copies update with availability management
-        if 'total_copies' in update_data:
-            borrowed_count = db_book.total_copies - db_book.available_copies
-            new_total = update_data['total_copies']
+        try:
+            self.logger.info(f"Updating book: {book_id}")
             
-            if new_total < borrowed_count:
-                log_error(
-                    self.logger,
-                    "Cannot reduce total_copies below borrowed count",
-                    book_id=book_id,
-                    new_total=new_total,
-                    borrowed_count=borrowed_count
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Cannot set total copies to {new_total}. "
-                           f"{borrowed_count} copies are currently borrowed."
-                )
+            # Get existing book
+            db_book = self.get_by_id(db, book_id)
             
-            # Update available_copies to maintain borrowed count
-            update_data['available_copies'] = new_total - borrowed_count
-        
-        # Update book
-        db_book = self.update(db, db_book, update_data)
-        
-        log_business_event(
-            self.logger,
-            "book_updated",
-            book_id=book_id,
-            fields_updated=list(update_data.keys())
-        )
-        
-        return db_book
+            # Check ISBN uniqueness if ISBN is being updated
+            if book_update.isbn and book_update.isbn != db_book.isbn:
+                if self.exists_by_field(
+                    db,
+                    "isbn",
+                    book_update.isbn,
+                    exclude_id=book_id
+                ):
+                    log_error(
+                        self.logger,
+                        "ISBN already in use",
+                        book_id=book_id,
+                        isbn=book_update.isbn
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail="ISBN already in use"
+                    )
+            
+            update_data = book_update.model_dump(exclude_unset=True)
+            
+            # Handle total_copies update with availability management
+            if 'total_copies' in update_data:
+                borrowed_count = db_book.total_copies - db_book.available_copies
+                new_total = update_data['total_copies']
+                
+                if new_total < borrowed_count:
+                    log_error(
+                        self.logger,
+                        "Cannot reduce total_copies below borrowed count",
+                        book_id=book_id,
+                        new_total=new_total,
+                        borrowed_count=borrowed_count
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot set total copies to {new_total}. "
+                               f"{borrowed_count} copies are currently borrowed."
+                    )
+                
+                # Update available_copies to maintain borrowed count
+                update_data['available_copies'] = new_total - borrowed_count
+            
+            # Update book
+            db_book = self.update(db, db_book, update_data)
+            
+            log_business_event(
+                self.logger,
+                "book_updated",
+                book_id=book_id,
+                fields_updated=list(update_data.keys())
+            )
+            
+            return db_book
+            
+        except HTTPException:
+            raise
+        except IntegrityError as e:
+            db.rollback()
+            log_error(
+                self.logger,
+                "Database integrity error while updating book",
+                exception=e,
+                book_id=book_id
+            )
+            raise HTTPException(
+                status_code=400,
+                detail="Database constraint violation"
+            )
+        except SQLAlchemyError as e:
+            db.rollback()
+            log_critical(
+                self.logger,
+                "Critical database error while updating book",
+                exception=e,
+                book_id=book_id
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
+        except Exception as e:
+            db.rollback()
+            log_critical(
+                self.logger,
+                "Unexpected error while updating book",
+                exception=e,
+                book_id=book_id
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
     
     def delete_book(
         self,
@@ -207,21 +341,68 @@ class BookController(BaseController[Book]):
             book_id: Book ID to delete
             
         Raises:
-            HTTPException: If book not found
+            HTTPException: If book not found, has active borrowings, or database error occurs
         """
-        self.logger.info(f"Deleting book: {book_id}")
-        
-        # Get existing book
-        db_book = self.get_by_id(db, book_id)
-        
-        # Soft delete
-        self.delete(db, db_book, soft_delete=True)
-        
-        log_business_event(
-            self.logger,
-            "book_deleted",
-            book_id=book_id
-        )
+        try:
+            self.logger.info(f"Deleting book: {book_id}")
+            
+            # Get existing book
+            db_book = self.get_by_id(db, book_id)
+            
+            # Check for active borrowings
+            active_borrowings = db.query(Borrowing).filter(
+                Borrowing.book_id == book_id,
+                Borrowing.status == 'BORROWED'
+            ).count()
+            
+            if active_borrowings > 0:
+                log_error(
+                    self.logger,
+                    "Cannot delete book with active borrowings",
+                    book_id=book_id,
+                    book_title=db_book.title,
+                    active_borrowings=active_borrowings
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot delete book. This book has {active_borrowings} active borrowing(s). Please wait for all copies to be returned first."
+                )
+            
+            # Soft delete
+            self.delete(db, db_book, soft_delete=True)
+            
+            log_business_event(
+                self.logger,
+                "book_deleted",
+                book_id=book_id
+            )
+            
+        except HTTPException:
+            raise
+        except SQLAlchemyError as e:
+            db.rollback()
+            log_critical(
+                self.logger,
+                "Critical database error while deleting book",
+                exception=e,
+                book_id=book_id
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
+        except Exception as e:
+            db.rollback()
+            log_critical(
+                self.logger,
+                "Unexpected error while deleting book",
+                exception=e,
+                book_id=book_id
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error"
+            )
     
     def check_availability(
         self,
