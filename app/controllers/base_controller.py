@@ -2,8 +2,10 @@
 Base controller class with common functionality for all controllers.
 """
 
+from contextlib import contextmanager
 from typing import TypeVar, Generic, Type, Optional, List, Any
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from fastapi import HTTPException
 from app.db.database import Base
 from app.core.logging import get_logger, log_db_operation, log_error
@@ -29,7 +31,44 @@ class BaseController(Generic[ModelType]):
         """
         self.model = model
         self.logger = get_logger(self.__class__.__name__)
-    
+
+    @contextmanager
+    def _handle_db_errors(self, db: Session, operation: str):
+        """Translate DB exceptions into HTTP responses.
+
+        Replaces the repetitive try/except HTTPException/SQLAlchemyError/Exception
+        pattern. Business-logic HTTPExceptions raised inside the block pass through
+        unchanged; DB errors trigger a rollback and a clean 400/500 response.
+        """
+        try:
+            yield
+        except HTTPException:
+            raise
+        except IntegrityError as e:
+            db.rollback()
+            self.logger.error(
+                f"Integrity error in {operation}",
+                extra={"exception": str(e)},
+                exc_info=True,
+            )
+            raise HTTPException(status_code=400, detail="Database constraint violation")
+        except SQLAlchemyError as e:
+            db.rollback()
+            self.logger.error(
+                f"Database error in {operation}",
+                extra={"exception": str(e)},
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Internal server error")
+        except Exception as e:
+            db.rollback()
+            self.logger.error(
+                f"Unexpected error in {operation}",
+                extra={"exception": str(e)},
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Internal server error")
+
     def get_by_id(
         self, 
         db: Session, 
