@@ -11,7 +11,6 @@ from app.schemas.schemas import (
     BorrowingWithDetails
 )
 from app.core.deps import get_current_active_user
-from app.core.logging import set_request_context
 from app.controllers.borrowing_controller import borrowing_controller
 
 router = APIRouter(prefix="/borrowings", tags=["borrowings"])
@@ -23,7 +22,6 @@ def borrow_book(
     current_user: User = Depends(get_current_active_user)
 ) -> BorrowingSchema:
     """Record a book being borrowed by a member"""
-    set_request_context(user_id=current_user.id, member_id=borrowing.member_id)
     return borrowing_controller.borrow_book(db, borrowing, current_user.id)
 
 @router.post("/{borrowing_id}/return", response_model=BorrowingSchema)
@@ -34,7 +32,6 @@ def return_book(
     current_user: User = Depends(get_current_active_user)
 ) -> BorrowingSchema:
     """Record a borrowed book being returned"""
-    set_request_context(user_id=current_user.id)
     return borrowing_controller.return_book(db, borrowing_id, return_data, current_user.id)
 
 @router.get("/", response_model=List[BorrowingWithDetails])
@@ -54,7 +51,6 @@ def get_member_borrowings(
     current_user: User = Depends(get_current_active_user)
 ) -> List[BorrowingWithDetails]:
     """Get all books borrowed by a specific member"""
-    set_request_context(user_id=current_user.id, member_id=member_id)
     return borrowing_controller.get_member_borrowings(db, member_id)
 
 @router.get("/book/{book_id}", response_model=List[BorrowingWithDetails])

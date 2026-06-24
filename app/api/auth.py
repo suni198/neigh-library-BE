@@ -6,7 +6,7 @@ from app.db.database import get_db
 from app.models.models import User
 from app.schemas.schemas import UserCreate, User as UserSchema, Token
 from app.core.deps import get_current_active_user
-from app.core.logging import get_logger, set_request_context
+from app.core.logging import get_logger
 from app.controllers.auth_controller import auth_controller
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -28,9 +28,7 @@ def login(
     db: Session = Depends(get_db)
 ) -> Token:
     """Login to get access token"""
-    token_data = auth_controller.login(db, form_data.username, form_data.password)
-    set_request_context(user_id=None)
-    return token_data
+    return auth_controller.login(db, form_data.username, form_data.password)
 
 
 @router.get("/me", response_model=UserSchema)
@@ -38,6 +36,5 @@ def get_current_user_info(
     current_user: User = Depends(get_current_active_user)
 ) -> UserSchema:
     """Get current user information"""
-    set_request_context(user_id=current_user.id)
     logger.info(f"User info requested", extra={"user_id": current_user.id})
     return current_user

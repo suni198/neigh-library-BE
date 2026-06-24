@@ -5,6 +5,7 @@ from jose import JWTError
 from app.core.security import decode_access_token
 from app.db.database import get_db
 from app.models.models import User
+from app.core.logging import set_request_context
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
@@ -42,7 +43,8 @@ async def get_current_user(
 async def get_current_active_user(
     current_user: User = Depends(get_current_user)
 ) -> User:
-    """Get current active user"""
+    """Get current active user and populate request logging context."""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+    set_request_context(user_id=current_user.id)
     return current_user

@@ -6,7 +6,6 @@ from app.db.database import get_db
 from app.models.models import User
 from app.schemas.schemas import Member as MemberSchema, MemberCreate, MemberUpdate
 from app.core.deps import get_current_active_user
-from app.core.logging import set_request_context
 from app.controllers.member_controller import member_controller
 
 router = APIRouter(prefix="/members", tags=["members"])
@@ -19,7 +18,6 @@ def create_member(
     current_user: User = Depends(get_current_active_user)
 ) -> MemberSchema:
     """Create a new library member"""
-    set_request_context(user_id=current_user.id)
     return member_controller.create_member(db, member, current_user.id)
 
 
@@ -31,7 +29,6 @@ def list_members(
     current_user: User = Depends(get_current_active_user)
 ) -> List[MemberSchema]:
     """List all library members"""
-    set_request_context(user_id=current_user.id)
     return member_controller.get_members(db, skip, limit)
 
 
@@ -42,7 +39,6 @@ def get_member(
     current_user: User = Depends(get_current_active_user)
 ) -> MemberSchema:
     """Get a specific member by ID"""
-    set_request_context(user_id=current_user.id, member_id=member_id)
     return member_controller.get_member_by_id(db, member_id)
 
 
@@ -54,7 +50,6 @@ def update_member(
     current_user: User = Depends(get_current_active_user)
 ) -> MemberSchema:
     """Update member information"""
-    set_request_context(user_id=current_user.id, member_id=member_id)
     return member_controller.update_member(db, member_id, member_update, current_user.id)
 
 
@@ -65,6 +60,5 @@ def delete_member(
     current_user: User = Depends(get_current_active_user)
 ) -> None:
     """Delete a member (soft delete by setting is_active=False)"""
-    set_request_context(user_id=current_user.id, member_id=member_id)
     member_controller.delete_member(db, member_id, current_user.id)
     return None
