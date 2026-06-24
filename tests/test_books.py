@@ -145,7 +145,7 @@ class TestBookEndpoints:
             borrowed_date=datetime.utcnow(),
             due_date=datetime.utcnow() + timedelta(days=14),
             status="RETURNED",
-            returned_date=datetime.utcnow()
+            return_date=datetime.utcnow()
         )
         db_session.add(borrowing)
         db_session.commit()
@@ -271,7 +271,7 @@ class TestBorrowingEndpoints:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["status"] == "RETURNED"
-        assert data["returned_date"] is not None
+        assert data["return_date"] is not None
     
     def test_get_borrowings_list(self, client, auth_headers):
         """Test listing all borrowings"""
@@ -351,7 +351,7 @@ class TestBorrowingEndpoints:
             borrowed_date=datetime.utcnow(),
             due_date=datetime.utcnow() + timedelta(days=14),
             status="RETURNED",
-            returned_date=datetime.utcnow()
+            return_date=datetime.utcnow()
         )
         db_session.add(borrowing)
         db_session.commit()

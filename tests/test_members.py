@@ -203,7 +203,7 @@ class TestMemberEndpoints:
             borrowed_date=datetime.utcnow(),
             due_date=datetime.utcnow() + timedelta(days=14),
             status="RETURNED",
-            returned_date=datetime.utcnow()
+            return_date=datetime.utcnow()
         )
         db_session.add(borrowing)
         db_session.commit()

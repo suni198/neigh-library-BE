@@ -15,6 +15,9 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 from app.db.database import Base, get_db
 from app.core.security import get_password_hash
 
+# Import all models so they are registered with Base.metadata before create_all() is called
+import app.models.models  # noqa: F401
+
 # Create in-memory SQLite database for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
@@ -139,7 +142,7 @@ def test_book(db_session):
     book = Book(
         title="Test Book",
         author="Test Author",
-        isbn="978-0-test-001",
+        isbn="9780001000001",
         publication_year=2024,
         genre="Fiction",
         total_copies=3,
