@@ -85,7 +85,37 @@ export SECRET_KEY="your-secret-key-change-in-production"
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
----
+Access API: http://localhost:8000/docs
+
+## Features
+
+### Core Functionality
+- ✅ RESTful API with full CRUD operations
+- ✅ JWT-based authentication
+- ✅ Member management
+- ✅ Book inventory management
+- ✅ Borrowing/return workflow
+- ✅ Automatic inventory tracking (database triggers)
+
+### Architecture
+- ✅ Controller pattern for business logic
+- ✅ Pydantic schemas for validation
+- ✅ SQLAlchemy models for database
+- ✅ Dependency injection
+- ✅ Middleware for logging and auth
+
+### Observability
+- ✅ Structured JSON logging
+- ✅ Request ID tracking
+- ✅ User ID context propagation
+- ✅ ERROR and CRITICAL log levels
+- ✅ Exception tracking with stack traces
+
+### Quality
+- ✅ 25+ unit tests (pytest)
+- ✅ Input validation
+- ✅ Type hints throughout
+- ✅ OpenAPI documentation
 
 ## Project Structure
 
@@ -253,4 +283,82 @@ Logging is structured JSON with fields: `timestamp`, `level`, `request_id`, `use
 
 ## Repository
 
-https://github.com/suni198/neigh-library-BE
+### Adding New Features
+
+1. Create model in `app/models/models.py`
+2. Create schemas in `app/schemas/schemas.py`
+3. Create controller in `app/controllers/`
+4. Create API routes in `app/api/`
+5. Add tests in `tests/`
+6. Update documentation
+
+### Database Migration
+
+```bash
+# Generate migration
+alembic revision --autogenerate -m "Description"
+
+# Apply migration
+alembic upgrade head
+
+# Rollback
+alembic downgrade -1
+```
+
+## Docker
+
+### Build Image
+
+```bash
+docker build -t library-backend .
+```
+
+### Run Container
+
+```bash
+docker run -p 8000:8000 \
+  -e DATABASE_URL="postgresql://user:pass@host:5432/db" \
+  -e SECRET_KEY="your-secret" \
+  library-backend
+```
+
+## Troubleshooting
+
+### Database Connection Issues
+```bash
+# Check PostgreSQL is running
+docker ps | grep postgres
+
+# Test connection
+psql -h localhost -U library_user -d library_db
+```
+
+### Port Already in Use
+```bash
+# Find process using port 8000
+lsof -i :8000
+
+# Kill process
+kill -9 <PID>
+```
+
+## Production Deployment
+
+Recommendations:
+1. Use environment variables for secrets (never commit)
+2. Enable CORS for frontend domain
+3. Set up log aggregation (ELK/CloudWatch)
+4. Configure database connection pooling
+5. Enable rate limiting
+6. Set up monitoring and alerts
+7. Use HTTPS/TLS
+8. Regular security updates
+
+## Support
+
+Repository: https://github.com/suni198/neigh-library-BE
+
+For the complete full-stack application, see the docker-compose setup at:
+```
+/Users/sunitasahu/Documents/interview assignment/senior arcitect role/
+```
